@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: admin-ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: admin-ui
+
+      - name: Build
+        run: npm run build
+        working-directory: admin-ui
+
+      - name: Create release zip
+        run: |
+          mkdir -p triage-wp
+          cp wp-triage.php triage-wp/
+          cp uninstall.php triage-wp/
+          cp README.md triage-wp/
+          cp -r dist triage-wp/
+          zip -r triage-wp-${{ github.ref_name }}.zip triage-wp
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: triage-wp-${{ github.ref_name }}.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

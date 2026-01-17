@@ -136,7 +136,7 @@ const SidebarMenuBadge = React.forwardRef<
   <span
     ref={ref}
     className={cn(
-      "ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium",
+      "ml-auto text-xs font-medium text-muted-foreground",
       className
     )}
     {...props}

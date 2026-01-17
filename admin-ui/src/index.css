@@ -47,4 +47,36 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
   }
+
+  /* Override WordPress admin table styles */
+  #wp-triage-app td,
+  #wp-triage-app th {
+    font-size: inherit;
+  }
+
+  /* Ensure text-xs works on table cells */
+  #wp-triage-app td.text-xs,
+  #wp-triage-app th.text-xs {
+    font-size: 0.75rem !important;
+    line-height: 1rem !important;
+  }
+
+  /* Override WP admin link colors in buttons */
+  #wp-triage-app a.text-white {
+    color: white !important;
+  }
+}
+
+/* Hover animation for empty state icon */
+@keyframes hover {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.animate-hover {
+  animation: hover 3s ease-in-out infinite;
 }

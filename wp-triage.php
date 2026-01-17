@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: WP Triage
+ * Plugin Name: Triage WP
  * Description: Quickly review and unpublish content, one post at a time.
- * Version: 1.0.0
+ * Version: 1.0.4
  * Author: You
  */
 
@@ -10,8 +10,8 @@ if (!defined('ABSPATH')) exit;
 
 add_action('admin_menu', function() {
     add_menu_page(
-        'WP Triage',
-        'WP Triage',
+        'Triage WP',
+        'Triage WP',
         'edit_posts',
         'wp-triage',
         'wp_triage_render_page',
@@ -27,8 +27,8 @@ add_action('admin_enqueue_scripts', function($hook) {
     wp_enqueue_style('material-symbols', 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,300,0,0&display=swap', [], null);
 
     // React app built assets
-    wp_enqueue_style('wp-triage', plugin_dir_url(__FILE__) . 'dist/wp-triage.css', ['material-symbols'], '2.0.0');
-    wp_enqueue_script('wp-triage', plugin_dir_url(__FILE__) . 'dist/wp-triage.js', [], '2.0.0', true);
+    wp_enqueue_style('wp-triage', plugin_dir_url(__FILE__) . 'dist/wp-triage.css', ['material-symbols'], '2.26.0');
+    wp_enqueue_script('wp-triage', plugin_dir_url(__FILE__) . 'dist/wp-triage.js', [], '2.26.0', true);
 
     // Pass WordPress data to the React app
     wp_localize_script('wp-triage', 'wpTriage', [
@@ -39,14 +39,31 @@ add_action('admin_enqueue_scripts', function($hook) {
 
 add_action('wp_ajax_wp_triage_get_post_types', function() {
     check_ajax_referer('wp_triage_nonce', 'nonce');
+    global $wpdb;
+
     $types = get_post_types(['public' => true], 'objects');
     $result = [];
+
     foreach ($types as $type) {
         if ($type->name === 'attachment') continue;
+
+        // Total posts in this type
+        $total = wp_count_posts($type->name)->publish + wp_count_posts($type->name)->draft + wp_count_posts($type->name)->pending + wp_count_posts($type->name)->private;
+
+        // Count triaged posts in this type
+        $triaged = $wpdb->get_var($wpdb->prepare("
+            SELECT COUNT(DISTINCT p.ID)
+            FROM {$wpdb->posts} p
+            INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_wp_triage'
+            WHERE p.post_type = %s
+            AND p.post_status IN ('publish', 'draft', 'pending', 'private')
+        ", $type->name));
+
         $result[] = [
             'name' => $type->name,
             'label' => $type->label,
-            'count' => wp_count_posts($type->name)->publish + wp_count_posts($type->name)->draft + wp_count_posts($type->name)->pending + wp_count_posts($type->name)->private,
+            'count' => (int) $total,
+            'triaged' => (int) $triaged,
         ];
     }
     wp_send_json_success($result);
@@ -139,10 +156,19 @@ add_action('wp_ajax_wp_triage_get_posts', function() {
     ]);
     $result = [];
     foreach ($posts as $p) {
+        // Get triage status from post meta
+        $triage_meta = get_post_meta($p->ID, '_wp_triage', true);
+        $triage_status = null;
+        if ($triage_meta) {
+            $triage_data = json_decode($triage_meta, true);
+            $triage_status = $triage_data['status'] ?? null;
+        }
+
         $result[] = [
             'id' => $p->ID,
             'title' => $p->post_title ?: '(no title)',
             'status' => $p->post_status,
+            'triage_status' => $triage_status,
         ];
     }
     wp_send_json_success($result);
@@ -183,50 +209,153 @@ add_action('wp_ajax_wp_triage_unpublish', function() {
     wp_send_json_success(['id' => $post_id, 'status' => 'draft']);
 });
 
-function wp_triage_load_traffic_data() {
-    static $traffic_data = null;
+// Mark a post as triaged (keep or unpublish)
+add_action('wp_ajax_wp_triage_mark', function() {
+    check_ajax_referer('wp_triage_nonce', 'nonce');
+    $post_id = intval($_POST['post_id'] ?? 0);
+    $status = sanitize_key($_POST['status'] ?? '');
 
-    if ($traffic_data !== null) {
-        return $traffic_data;
+    $post = get_post($post_id);
+    if (!$post) wp_send_json_error('Post not found');
+
+    if (!in_array($status, ['keep', 'unpublish'])) {
+        wp_send_json_error('Invalid triage status');
     }
 
-    $traffic_data = [];
-    $csv_file = plugin_dir_path(__FILE__) . 'traffic.csv';
+    $triage_data = [
+        'status' => $status,
+        'timestamp' => time(),
+        'user_id' => get_current_user_id(),
+    ];
 
-    if (!file_exists($csv_file)) {
-        return $traffic_data;
-    }
+    update_post_meta($post_id, '_wp_triage', wp_json_encode($triage_data));
 
-    $handle = fopen($csv_file, 'r');
-    if (!$handle) {
-        return $traffic_data;
-    }
+    wp_send_json_success([
+        'post_id' => $post_id,
+        'triage_status' => $status,
+        'post_status' => $post->post_status,
+    ]);
+});
 
-    // Skip header row
-    $headers = fgetcsv($handle);
-
-    while (($row = fgetcsv($handle)) !== false) {
-        if (count($row) < 6) continue;
-
-        $slug = trim($row[0], '/');
-        if (empty($slug)) $slug = '/'; // Homepage
-
-        $traffic_data[$slug] = [
-            'sessions' => intval($row[1]),
-            'active_users' => intval($row[2]),
-            'new_users' => intval($row[3]),
-            'avg_engagement_time' => intval($row[4]),
-            'key_events' => intval($row[5]),
-        ];
-    }
-
-    fclose($handle);
-    return $traffic_data;
-}
-
+// Get traffic data from wp_options
 add_action('wp_ajax_wp_triage_get_traffic', function() {
     check_ajax_referer('wp_triage_nonce', 'nonce');
-    wp_send_json_success(wp_triage_load_traffic_data());
+    $stored = get_option('wp_triage_csv_data', null);
+    if ($stored) {
+        wp_send_json_success($stored);
+    } else {
+        wp_send_json_success(['headers' => [], 'data' => []]);
+    }
+});
+
+// Save CSV data (parsed client-side)
+add_action('wp_ajax_wp_triage_save_csv', function() {
+    check_ajax_referer('wp_triage_nonce', 'nonce');
+
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Permission denied');
+    }
+
+    $headers = isset($_POST['headers']) ? json_decode(stripslashes($_POST['headers']), true) : [];
+    $data = isset($_POST['data']) ? json_decode(stripslashes($_POST['data']), true) : [];
+    $raw_lines = isset($_POST['raw_lines']) ? json_decode(stripslashes($_POST['raw_lines']), true) : [];
+    $filename = sanitize_file_name($_POST['filename'] ?? 'data.csv');
+    $row_count = intval($_POST['row_count'] ?? 0);
+
+    if (empty($headers) || empty($data)) {
+        wp_send_json_error('Invalid CSV data');
+    }
+
+    $csv_data = [
+        'headers' => $headers,
+        'data' => $data,
+        'raw_lines' => $raw_lines,
+        'filename' => $filename,
+        'uploaded_at' => time(),
+        'row_count' => $row_count,
+    ];
+
+    update_option('wp_triage_csv_data', $csv_data, false);
+
+    wp_send_json_success([
+        'filename' => $filename,
+        'row_count' => $row_count,
+        'headers' => $headers,
+    ]);
+});
+
+// Get CSV upload status
+add_action('wp_ajax_wp_triage_get_csv_status', function() {
+    check_ajax_referer('wp_triage_nonce', 'nonce');
+    $stored = get_option('wp_triage_csv_data', null);
+    if ($stored && isset($stored['filename'])) {
+        wp_send_json_success([
+            'has_csv' => true,
+            'filename' => $stored['filename'],
+            'row_count' => $stored['row_count'] ?? 0,
+            'uploaded_at' => $stored['uploaded_at'] ?? null,
+        ]);
+    } else {
+        wp_send_json_success(['has_csv' => false]);
+    }
+});
+
+// Get all unpublished post slugs for CSV export
+add_action('wp_ajax_wp_triage_get_unpublished_slugs', function() {
+    check_ajax_referer('wp_triage_nonce', 'nonce');
+
+    // Get all posts with unpublish triage status
+    $posts = get_posts([
+        'post_type' => 'any',
+        'post_status' => ['publish', 'draft', 'pending', 'private'],
+        'numberposts' => -1,
+        'meta_query' => [
+            [
+                'key' => '_wp_triage',
+                'compare' => 'EXISTS',
+            ],
+        ],
+    ]);
+
+    $unpublished_slugs = [];
+    foreach ($posts as $post) {
+        $triage_meta = get_post_meta($post->ID, '_wp_triage', true);
+        if ($triage_meta) {
+            $triage_data = json_decode($triage_meta, true);
+            if (isset($triage_data['status']) && $triage_data['status'] === 'unpublish') {
+                // Use post_name (slug) directly - more reliable than parsing permalink
+                // which returns query strings like ?p=123 for drafts
+                $slug = $post->post_name;
+                if (!empty($slug)) {
+                    $unpublished_slugs[] = $slug;
+                }
+            }
+        }
+    }
+
+    wp_send_json_success($unpublished_slugs);
+});
+
+// Clear all triage data
+add_action('wp_ajax_wp_triage_clear_all_data', function() {
+    check_ajax_referer('wp_triage_nonce', 'nonce');
+
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Permission denied');
+    }
+
+    global $wpdb;
+
+    // Delete all triage meta from postmeta table
+    $deleted_meta = $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE meta_key = '_wp_triage'");
+
+    // Delete CSV data from options
+    delete_option('wp_triage_csv_data');
+
+    wp_send_json_success([
+        'deleted_meta_rows' => $deleted_meta,
+        'message' => 'All triage data cleared'
+    ]);
 });
 
 function wp_triage_render_page() {

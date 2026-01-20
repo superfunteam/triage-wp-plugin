@@ -497,17 +497,20 @@ export default function App() {
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Sidebar */}
         <Sidebar className="w-60 flex-shrink-0 bg-transparent border-none">
-          <SidebarContent className="overflow-hidden">
-            <div className="flex w-[200%] transition-transform duration-300" style={{ transform: showPostsPanel ? 'translateX(-50%)' : 'translateX(0)' }}>
+          <SidebarContent className="overflow-hidden h-full">
+            <div className="flex w-[200%] h-full transition-transform duration-300" style={{ transform: showPostsPanel ? 'translateX(-50%)' : 'translateX(0)' }}>
               {/* Post Types Panel */}
-              <div className="w-1/2 p-0">
+              <div className="w-1/2 p-0 h-full overflow-y-auto">
                 <SidebarHeader className="px-0 pt-0">
                   <div className="flex items-center justify-between text-sm font-semibold text-foreground">
-                    <span className="flex items-center gap-2">
-                      <span className="material-symbols-outlined text-lg">book_5</span>
-                      All Post Types
-                    </span>
+                    <span>All Post Types</span>
                     <Badge variant="muted" className="text-xs">{formatCount(totalTriaged, totalPosts)}</Badge>
+                  </div>
+                  <div className="pr-3 mt-2">
+                    <Progress
+                      value={totalPosts > 0 ? (totalTriaged / totalPosts) * 100 : 0}
+                      className="h-1"
+                    />
                   </div>
                 </SidebarHeader>
                 <SidebarMenu className="px-0">
@@ -517,7 +520,7 @@ export default function App() {
                         isActive={currentType === type.name}
                         onClick={() => selectType(type.name)}
                         className={cn(
-                          "flex-col items-stretch gap-1.5 py-2",
+                          "flex-col items-stretch gap-1.5 py-2 pl-0 pr-3",
                           currentType === type.name && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground"
                         )}
                       >
@@ -543,8 +546,9 @@ export default function App() {
               </div>
 
               {/* Posts Panel */}
-              <div className="w-1/2 flex flex-col h-full">
-                <div className="flex-1 overflow-y-auto min-h-0">
+              <div className="w-1/2 flex flex-col h-full overflow-hidden">
+                {/* Fixed Header */}
+                <div className="shrink-0">
                   {/* Back Button */}
                   <Button
                     variant="secondary"
@@ -557,14 +561,13 @@ export default function App() {
 
                   {/* Posts Header */}
                   <div className="flex items-center justify-between text-sm font-semibold text-foreground mb-3">
-                    <span className="flex items-center gap-2">
-                      <span className="material-symbols-outlined text-lg">lab_profile</span>
-                      {postTypes.find(t => t.name === currentType)?.label || ''}
-                    </span>
+                    <span>{postTypes.find(t => t.name === currentType)?.label || ''}</span>
                     <Badge variant="muted" className="text-xs min-w-[54px] text-center">{formatCount(posts.length - remainingInType, posts.length)}</Badge>
                   </div>
+                </div>
 
-                  {/* Posts List */}
+                {/* Scrollable Posts List */}
+                <div className="flex-1 overflow-y-auto min-h-0">
                   <div className="space-y-0.5">
                     {isLoading ? (
                       <div className="text-sm text-muted-foreground py-2 px-3">Loading...</div>
@@ -616,9 +619,9 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Bulk Actions */}
+                {/* Fixed Bulk Actions */}
                 {selected.size > 0 && (
-                  <div className="shrink-0 pt-4 mt-auto border-t">
+                  <div className="shrink-0 pt-4 pb-6 border-t">
                     <Button
                       onClick={() => setBulkActionsOpen(true)}
                       className="w-full"
@@ -848,42 +851,39 @@ export default function App() {
               {/* Preview Panel */}
               <div className="flex-1 min-w-0 overflow-hidden bg-background pt-4 pl-4 pr-4 flex flex-col">
                 <div
-                  className="flex-1 min-h-0 rounded-t-2xl overflow-hidden relative group"
-                  style={{
+                  className="flex-1 min-h-0 rounded-t-2xl overflow-hidden relative group border border-b-0 border-gray-200"
+                  style={isMobileView ? {
                     background: '#f5f5f4 radial-gradient(circle, #ddd 1px, transparent 1px)',
                     backgroundSize: '16px 16px',
                     boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.06)'
-                  }}
+                  } : undefined}
                 >
-                  {/* White backer - stays opaque when preview fades */}
-                  <div className={cn(
-                    "absolute inset-0 pt-6 px-6 flex transition-all duration-300 ease-in-out pointer-events-none",
-                    isMobileView ? "justify-center" : "justify-start"
-                  )}>
-                    <div className={cn(
-                      "h-full bg-white rounded-t-lg",
-                      isMobileView ? "w-60" : "w-full"
-                    )} />
-                  </div>
+                  {/* White backer - only for mobile view */}
+                  {isMobileView && (
+                    <div className="absolute inset-0 pt-6 px-6 flex justify-center transition-all duration-300 ease-in-out pointer-events-none">
+                      <div className="h-full bg-white rounded-t-lg w-80" />
+                    </div>
+                  )}
 
-                  {/* Preview Container Wrapper - fills the well, no bottom padding */}
+                  {/* Preview Container Wrapper */}
                   <div className={cn(
-                    "absolute inset-0 pt-6 px-6 flex transition-all duration-300 ease-in-out",
-                    isMobileView ? "justify-center" : "justify-start"
+                    "absolute inset-0 flex transition-all duration-300 ease-in-out",
+                    isMobileView ? "pt-6 px-6 justify-center" : ""
                   )}>
-                    {/* Preview Container - extends to bottom of well */}
+                    {/* Preview Container */}
                     <div
                       className={cn(
-                        "h-full bg-white rounded-t-lg overflow-auto relative transition-all duration-300 ease-in-out",
-                        "shadow-[0_1px_3px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.08)]",
+                        "h-full bg-white overflow-auto relative transition-all duration-300 ease-in-out",
                         "group-hover:opacity-30",
-                        isMobileView ? "w-60" : "w-full"
+                        isMobileView
+                          ? "w-80 rounded-t-lg shadow-[0_1px_3px_rgba(0,0,0,0.08),0_8px_24px_rgba(0,0,0,0.08)]"
+                          : "w-full rounded-t-2xl"
                       )}
                     >
                       <div
                         className={cn(
                           "origin-top-left transition-all duration-300 ease-in-out",
-                          isMobileView ? "w-[166.67%] scale-[0.6]" : "w-[333.33%] scale-[0.3]"
+                          isMobileView ? "w-[125%] scale-[0.8]" : "w-[333.33%] scale-[0.3]"
                         )}
                       >
                         <iframe
@@ -895,7 +895,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Preview Actions - overlay at bottom of well, shown on hover */}
+                  {/* Preview Actions - overlay at bottom, shown on hover */}
                   <div className="absolute bottom-6 left-6 right-6 flex gap-3 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                     <Button asChild className="flex-1 text-white">
                       <a href={currentMeta.permalink} target="_blank" rel="noopener noreferrer" className="text-white no-underline">
@@ -938,7 +938,7 @@ export default function App() {
             CSV
           </button>
         </div>
-        <nav className="flex gap-6">
+        <nav className="flex gap-4">
           <a href="https://wims.vc" target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:text-foreground">
             Made by wims.vc
           </a>
@@ -961,30 +961,30 @@ export default function App() {
             <div className="flex items-center justify-between gap-3">
               <Label className="flex items-center gap-3 cursor-pointer">
                 <Checkbox defaultChecked />
-                <span>Mark posts as "draft"</span>
+                <span>Make new Triage meta data</span>
               </Label>
-              <Badge variant="success" className="text-xs">Non destructive</Badge>
+              <Badge variant="success" className="text-xs">Totally safe</Badge>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <Label className="flex items-center gap-3 cursor-pointer">
-                <Checkbox />
-                <span>Make new tracking post meta</span>
+            <div className="flex items-center justify-between gap-3 opacity-50">
+              <Label className="flex items-center gap-3">
+                <Checkbox disabled />
+                <span>Edit content tags/categories/taxonomies</span>
               </Label>
-              <Badge variant="success" className="text-xs">Non destructive</Badge>
+              <Badge variant="warning" className="text-xs">Requires permission</Badge>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <Label className="flex items-center gap-3 cursor-pointer">
-                <Checkbox />
-                <span>Edit tags/categories/taxonomies</span>
+            <div className="flex items-center justify-between gap-3 opacity-50">
+              <Label className="flex items-center gap-3">
+                <Checkbox disabled />
+                <span>Mark content as "Draft" status</span>
               </Label>
-              <Badge variant="warning" className="text-xs">Metadata edit rights</Badge>
+              <Badge variant="warning" className="text-xs">Requires permission</Badge>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <Label className="flex items-center gap-3 cursor-pointer">
-                <Checkbox />
+            <div className="flex items-center justify-between gap-3 opacity-50">
+              <Label className="flex items-center gap-3">
+                <Checkbox disabled />
                 <span>Actually delete posts</span>
               </Label>
-              <Badge variant="destructive" className="text-xs">Destructive, with confirm</Badge>
+              <Badge variant="destructive" className="text-xs">Destructive, Requires permission</Badge>
             </div>
             <div className="pt-4 border-t mt-4">
               <button

@@ -195,20 +195,6 @@ add_action('wp_ajax_wp_triage_get_post_meta', function() {
     ]);
 });
 
-add_action('wp_ajax_wp_triage_unpublish', function() {
-    check_ajax_referer('wp_triage_nonce', 'nonce');
-    $post_id = intval($_POST['post_id'] ?? 0);
-    $post = get_post($post_id);
-    if (!$post) wp_send_json_error('Post not found');
-
-    wp_update_post([
-        'ID' => $post_id,
-        'post_status' => 'draft',
-    ]);
-
-    wp_send_json_success(['id' => $post_id, 'status' => 'draft']);
-});
-
 // Mark a post as triaged (keep or unpublish)
 add_action('wp_ajax_wp_triage_mark', function() {
     check_ajax_referer('wp_triage_nonce', 'nonce');
@@ -356,6 +342,50 @@ add_action('wp_ajax_wp_triage_clear_all_data', function() {
         'deleted_meta_rows' => $deleted_meta,
         'message' => 'All triage data cleared'
     ]);
+});
+
+// Add triage status filter dropdown to post list screens
+add_action('restrict_manage_posts', function($post_type) {
+    global $wpdb;
+
+    // Check if any posts have triage status for this post type
+    $has_triage = $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM {$wpdb->postmeta} pm
+         INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
+         WHERE pm.meta_key = '_wp_triage' AND p.post_type = %s",
+        $post_type
+    ));
+
+    if (!$has_triage) return;
+
+    $selected = isset($_GET['wp_triage_filter']) ? sanitize_text_field($_GET['wp_triage_filter']) : '';
+    ?>
+    <select name="wp_triage_filter">
+        <option value="">Triage Status</option>
+        <option value="keep" <?php selected($selected, 'keep'); ?>>Keep</option>
+        <option value="unpublish" <?php selected($selected, 'unpublish'); ?>>Unpublish</option>
+    </select>
+    <?php
+});
+
+// Filter posts by triage status when filter is selected
+add_action('pre_get_posts', function($query) {
+    if (!is_admin() || !$query->is_main_query()) return;
+
+    global $pagenow;
+    if ($pagenow !== 'edit.php') return;
+
+    $filter = isset($_GET['wp_triage_filter']) ? sanitize_text_field($_GET['wp_triage_filter']) : '';
+    if (!in_array($filter, ['keep', 'unpublish'])) return;
+
+    // Meta query to find posts with matching triage status
+    $meta_query = $query->get('meta_query') ?: [];
+    $meta_query[] = [
+        'key' => '_wp_triage',
+        'value' => '"status":"' . $filter . '"',
+        'compare' => 'LIKE'
+    ];
+    $query->set('meta_query', $meta_query);
 });
 
 function wp_triage_render_page() {

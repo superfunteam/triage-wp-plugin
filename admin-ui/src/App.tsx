@@ -249,7 +249,7 @@ export default function App() {
     setCurrentMeta(null)
   }
 
-  // Unpublish current post
+  // Unpublish current post (only sets meta flag, does not change post status)
   const unpublish = useCallback(() => {
     const post = posts[currentIndex]
     if (!post) return
@@ -257,13 +257,9 @@ export default function App() {
     const wasUntriaged = post.triage_status === null
     const slug = currentMeta ? getSlugFromPermalink(currentMeta.permalink) : null
 
-    // Mark as triaged AND unpublish
-    Promise.all([
-      ajax<{ post_id: number; triage_status: string }>('wp_triage_mark', { post_id: post.id, status: 'unpublish' }),
-      ajax<{ id: number; status: string }>('wp_triage_unpublish', { post_id: post.id })
-    ]).then(([markRes, unpubRes]) => {
-      if (!markRes.success || !unpubRes.success) return
-      setPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'draft', triage_status: 'unpublish' } : p))
+    ajax<{ post_id: number; triage_status: string }>('wp_triage_mark', { post_id: post.id, status: 'unpublish' }).then(res => {
+      if (!res.success) return
+      setPosts(prev => prev.map(p => p.id === post.id ? { ...p, triage_status: 'unpublish' } : p))
       // Track unpublished slug for CSV export
       if (slug) {
         setUnpublishedSlugs(prev => new Set([...prev, slug]))
@@ -294,7 +290,7 @@ export default function App() {
     })
   }, [posts, currentIndex, nextPost, currentType])
 
-  // Bulk unpublish
+  // Bulk unpublish (only sets meta flag, does not change post status)
   const bulkUnpublish = () => {
     const selectedIds = [...selected]
     // Count how many were previously untriaged
@@ -306,12 +302,9 @@ export default function App() {
     let completed = 0
 
     selectedIds.forEach(postId => {
-      Promise.all([
-        ajax<{ post_id: number; triage_status: string }>('wp_triage_mark', { post_id: postId, status: 'unpublish' }),
-        ajax<{ id: number; status: string }>('wp_triage_unpublish', { post_id: postId })
-      ]).then(([markRes, unpubRes]) => {
-        if (markRes.success && unpubRes.success) {
-          setPosts(prev => prev.map(p => p.id === postId ? { ...p, status: 'draft', triage_status: 'unpublish' } : p))
+      ajax<{ post_id: number; triage_status: string }>('wp_triage_mark', { post_id: postId, status: 'unpublish' }).then(res => {
+        if (res.success) {
+          setPosts(prev => prev.map(p => p.id === postId ? { ...p, triage_status: 'unpublish' } : p))
         }
         completed++
         if (completed === selectedIds.length) {

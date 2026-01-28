@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Triage WP
  * Description: Quickly review and unpublish content, one post at a time.
- * Version: 1.0.6
+ * Version: 1.0.7
  * Author: You
  */
 

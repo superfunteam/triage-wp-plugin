@@ -113,7 +113,7 @@ ajax('wp_triage_my_action', { param: value }).then(res => {
 
 ## Version
 
-Current: 1.0.4
+Current: 1.0.6
 
 Ask before bumping the version number.
 

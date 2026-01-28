@@ -35,6 +35,7 @@ interface PostMeta {
   tags: string[]
   permalink: string
   edit_link: string
+  post_name: string
 }
 
 // Dynamic traffic data - keys come from CSV headers
@@ -70,6 +71,13 @@ function getSlugFromPermalink(permalink: string): string {
     const url = new URL(permalink)
     let path = url.pathname
     path = path.replace(/^\/|\/$/g, '')
+
+    // If path is empty but there are query params (like ?p=123 or ?post_type=...&p=123),
+    // this is a query-based permalink, not the homepage - return empty to indicate no match
+    if (!path && url.search) {
+      return ''
+    }
+
     return path || '/'
   } catch {
     return ''
@@ -255,7 +263,8 @@ export default function App() {
     if (!post) return
 
     const wasUntriaged = post.triage_status === null
-    const slug = currentMeta ? getSlugFromPermalink(currentMeta.permalink) : null
+    // Use post_name directly for CSV export tracking
+    const slug = currentMeta?.post_name || null
 
     ajax<{ post_id: number; triage_status: string }>('wp_triage_mark', { post_id: post.id, status: 'unpublish' }).then(res => {
       if (!res.success) return
@@ -447,7 +456,8 @@ export default function App() {
   }, [unpublish, keep, posts, currentIndex, bulkActionsOpen, permissionsOpen, loadPost, showPostsPanel, postTypes, currentType, selectType])
 
   // Get traffic data for current post
-  const currentTraffic = currentMeta ? traffic[getSlugFromPermalink(currentMeta.permalink)] || {} : {}
+  const csvSlug = currentMeta ? getSlugFromPermalink(currentMeta.permalink) : ''
+  const currentTraffic = csvSlug ? traffic[csvSlug] || {} : {}
   // Try to get sessions from first numeric column for badges
   const firstNumericValue = trafficHeaders.length > 0
     ? (typeof currentTraffic[trafficHeaders[0]] === 'number' ? currentTraffic[trafficHeaders[0]] as number : 0)
@@ -801,16 +811,19 @@ export default function App() {
                         <Table>
                           <TableBody>
                             {trafficHeaders.map((header, index) => {
+                              const hasMatch = Object.keys(currentTraffic).length > 0
                               const value = currentTraffic[header]
-                              const displayValue = typeof value === 'number'
-                                ? value.toLocaleString()
-                                : value || '—'
+                              const displayValue = !hasMatch
+                                ? 'Missing Slug'
+                                : typeof value === 'number'
+                                  ? value.toLocaleString()
+                                  : value || '—'
                               return (
                                 <TableRow key={header} className={index === trafficHeaders.length - 1 ? "border-0" : "border-muted"}>
                                   <TableCell className="w-28 text-muted-foreground bg-transparent text-xs">
                                     {header}
                                   </TableCell>
-                                  <TableCell className="bg-background tabular-nums">{displayValue}</TableCell>
+                                  <TableCell className={`bg-background ${hasMatch ? 'tabular-nums' : 'text-muted-foreground italic'}`}>{displayValue}</TableCell>
                                 </TableRow>
                               )
                             })}

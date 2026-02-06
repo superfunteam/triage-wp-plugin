@@ -1234,6 +1234,24 @@ export default function App() {
                         {csvUploading ? 'Processing...' : 'Replace CSV'}
                       </Button>
                     </div>
+                    <button
+                      onClick={() => {
+                        ajax<string[]>('wp_triage_get_unpublished_slugs').then(res => {
+                          if (!res.success) return
+                          const csvContent = 'slug\n' + res.data.join('\n')
+                          const blob = new Blob([csvContent], { type: 'text/csv' })
+                          const url = URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url
+                          a.download = 'only-unpublish.csv'
+                          a.click()
+                          URL.revokeObjectURL(url)
+                        })
+                      }}
+                      className="text-xs text-muted-foreground hover:text-foreground mt-1"
+                    >
+                      only-unpublish.csv
+                    </button>
                   </div>
                 ) : (
                   <>

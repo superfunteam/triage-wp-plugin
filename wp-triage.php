@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Triage WP
  * Description: Quickly review and unpublish content, one post at a time.
- * Version: 1.0.8
+ * Version: 1.0.9
  * Author: You
  */
 
@@ -27,8 +27,8 @@ add_action('admin_enqueue_scripts', function($hook) {
     wp_enqueue_style('material-symbols', 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,300,0,0&display=swap', [], null);
 
     // React app built assets
-    wp_enqueue_style('wp-triage', plugin_dir_url(__FILE__) . 'dist/wp-triage.css', ['material-symbols'], '1.0.8');
-    wp_enqueue_script('wp-triage', plugin_dir_url(__FILE__) . 'dist/wp-triage.js', [], '1.0.8', true);
+    wp_enqueue_style('wp-triage', plugin_dir_url(__FILE__) . 'dist/wp-triage.css', ['material-symbols'], '1.0.9');
+    wp_enqueue_script('wp-triage', plugin_dir_url(__FILE__) . 'dist/wp-triage.js', [], '1.0.9', true);
 
     // Pass WordPress data to the React app
     wp_localize_script('wp-triage', 'wpTriage', [

@@ -1248,7 +1248,7 @@ export default function App() {
                           URL.revokeObjectURL(url)
                         })
                       }}
-                      className="text-xs text-muted-foreground hover:text-foreground mt-1"
+                      className="text-xs text-muted-foreground hover:text-foreground mt-1 w-full text-center"
                     >
                       Save only unpublish slugs
                     </button>

@@ -59,11 +59,33 @@ add_action('wp_ajax_wp_triage_get_post_types', function() {
             AND p.post_status IN ('publish', 'draft', 'pending', 'private')
         ", $type->name));
 
+        // Count kept posts
+        $kept = $wpdb->get_var($wpdb->prepare("
+            SELECT COUNT(DISTINCT p.ID)
+            FROM {$wpdb->posts} p
+            INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_wp_triage'
+            WHERE p.post_type = %s
+            AND p.post_status IN ('publish', 'draft', 'pending', 'private')
+            AND pm.meta_value LIKE %s
+        ", $type->name, '%"status":"keep"%'));
+
+        // Count unpublished posts
+        $unpublished = $wpdb->get_var($wpdb->prepare("
+            SELECT COUNT(DISTINCT p.ID)
+            FROM {$wpdb->posts} p
+            INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id AND pm.meta_key = '_wp_triage'
+            WHERE p.post_type = %s
+            AND p.post_status IN ('publish', 'draft', 'pending', 'private')
+            AND pm.meta_value LIKE %s
+        ", $type->name, '%"status":"unpublish"%'));
+
         $result[] = [
             'name' => $type->name,
             'label' => $type->label,
             'count' => (int) $total,
             'triaged' => (int) $triaged,
+            'kept' => (int) $kept,
+            'unpublished' => (int) $unpublished,
         ];
     }
     wp_send_json_success($result);
@@ -291,7 +313,7 @@ add_action('wp_ajax_wp_triage_get_csv_status', function() {
 add_action('wp_ajax_wp_triage_get_unpublished_slugs', function() {
     check_ajax_referer('wp_triage_nonce', 'nonce');
 
-    // Get all posts with unpublish triage status
+    // Get all posts with triage status (both keep and unpublish)
     $posts = get_posts([
         'post_type' => 'any',
         'post_status' => ['publish', 'draft', 'pending', 'private'],
@@ -305,20 +327,41 @@ add_action('wp_ajax_wp_triage_get_unpublished_slugs', function() {
     ]);
 
     $unpublished_slugs = [];
+    $kept_slugs = [];
+
     foreach ($posts as $post) {
         $triage_meta = get_post_meta($post->ID, '_wp_triage', true);
-        if ($triage_meta) {
-            $triage_data = json_decode($triage_meta, true);
-            if (isset($triage_data['status']) && $triage_data['status'] === 'unpublish') {
-                // Use post_name (slug) directly - more reliable than parsing permalink
-                // which returns query strings like ?p=123 for drafts
-                $slug = $post->post_name;
-                if (!empty($slug)) {
-                    $unpublished_slugs[] = $slug;
-                }
+        if (!$triage_meta) continue;
+
+        $triage_data = json_decode($triage_meta, true);
+        $status = isset($triage_data['status']) ? $triage_data['status'] : null;
+        if (!$status) continue;
+
+        // Extract normalized URL path from permalink
+        $permalink = get_permalink($post);
+        $parsed = parse_url($permalink);
+        $path = isset($parsed['path']) ? trim($parsed['path'], '/') : '';
+
+        // Query-string URLs (drafts) fall back to page URI or post_name
+        if (empty($path) && !empty($parsed['query'])) {
+            if (is_post_type_hierarchical($post->post_type)) {
+                $path = get_page_uri($post);
+            } else {
+                $path = $post->post_name;
             }
         }
+
+        if (empty($path)) continue;
+
+        if ($status === 'unpublish') {
+            $unpublished_slugs[] = $path;
+        } elseif ($status === 'keep') {
+            $kept_slugs[] = $path;
+        }
     }
+
+    // KEEP overrides UNPUBLISH: exclude any slug that appears in kept set
+    $unpublished_slugs = array_values(array_diff($unpublished_slugs, $kept_slugs));
 
     wp_send_json_success($unpublished_slugs);
 });

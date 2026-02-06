@@ -17,6 +17,8 @@ interface PostType {
   label: string
   count: number
   triaged: number
+  kept: number
+  unpublished: number
 }
 
 interface Post {
@@ -103,9 +105,10 @@ export default function App() {
   const [bulkActionsOpen, setBulkActionsOpen] = useState(false)
   const [csvUploadOpen, setCsvUploadOpen] = useState(false)
   const [csvFilename, setCsvFilename] = useState<string | null>(null)
+  const [statsOpen, setStatsOpen] = useState(false)
   const [csvUploading, setCsvUploading] = useState(false)
   const [csvSuccess, setCsvSuccess] = useState(false)
-  const [unpublishedSlugs, setUnpublishedSlugs] = useState<Set<string>>(new Set())
+  const [, setUnpublishedSlugs] = useState<Set<string>>(new Set())
   const [rawCsvLines, setRawCsvLines] = useState<string[]>([])
   const csvInputRef = useRef<HTMLInputElement>(null)
 
@@ -263,8 +266,8 @@ export default function App() {
     if (!post) return
 
     const wasUntriaged = post.triage_status === null
-    // Use post_name directly for CSV export tracking
-    const slug = currentMeta?.post_name || null
+    // Use permalink-based slug for CSV export tracking (matches PHP endpoint)
+    const slug = currentMeta ? getSlugFromPermalink(currentMeta.permalink) : null
 
     ajax<{ post_id: number; triage_status: string }>('wp_triage_mark', { post_id: post.id, status: 'unpublish' }).then(res => {
       if (!res.success) return
@@ -273,9 +276,15 @@ export default function App() {
       if (slug) {
         setUnpublishedSlugs(prev => new Set([...prev, slug]))
       }
-      // Update postTypes triaged count if this was previously untriaged
-      if (wasUntriaged && currentType) {
-        setPostTypes(prev => prev.map(t => t.name === currentType ? { ...t, triaged: t.triaged + 1 } : t))
+      // Update postTypes counts
+      if (currentType) {
+        setPostTypes(prev => prev.map(t => {
+          if (t.name !== currentType) return t
+          const updates: Partial<PostType> = { unpublished: t.unpublished + 1 }
+          if (wasUntriaged) updates.triaged = t.triaged + 1
+          if (post.triage_status === 'keep') updates.kept = t.kept - 1
+          return { ...t, ...updates }
+        }))
       }
       nextPost()
     })
@@ -287,25 +296,43 @@ export default function App() {
     if (!post) return
 
     const wasUntriaged = post.triage_status === null
+    const slug = currentMeta ? getSlugFromPermalink(currentMeta.permalink) : null
 
     ajax<{ post_id: number; triage_status: string }>('wp_triage_mark', { post_id: post.id, status: 'keep' }).then(res => {
       if (!res.success) return
       setPosts(prev => prev.map(p => p.id === post.id ? { ...p, triage_status: 'keep' } : p))
-      // Update postTypes triaged count if this was previously untriaged
-      if (wasUntriaged && currentType) {
-        setPostTypes(prev => prev.map(t => t.name === currentType ? { ...t, triaged: t.triaged + 1 } : t))
+      // Remove from unpublished slugs if present (post may have been switched from unpublish to keep)
+      if (slug) {
+        setUnpublishedSlugs(prev => {
+          const next = new Set(prev)
+          next.delete(slug)
+          return next
+        })
+      }
+      // Update postTypes counts
+      if (currentType) {
+        setPostTypes(prev => prev.map(t => {
+          if (t.name !== currentType) return t
+          const updates: Partial<PostType> = { kept: t.kept + 1 }
+          if (wasUntriaged) updates.triaged = t.triaged + 1
+          if (post.triage_status === 'unpublish') updates.unpublished = t.unpublished - 1
+          return { ...t, ...updates }
+        }))
       }
       nextPost()
     })
-  }, [posts, currentIndex, nextPost, currentType])
+  }, [posts, currentIndex, nextPost, currentType, currentMeta])
 
   // Bulk unpublish (only sets meta flag, does not change post status)
   const bulkUnpublish = () => {
     const selectedIds = [...selected]
-    // Count how many were previously untriaged
     const newlyTriagedCount = selectedIds.filter(id => {
       const post = posts.find(p => p.id === id)
       return post && post.triage_status === null
+    }).length
+    const switchedFromKeep = selectedIds.filter(id => {
+      const post = posts.find(p => p.id === id)
+      return post && post.triage_status === 'keep'
     }).length
 
     let completed = 0
@@ -317,9 +344,16 @@ export default function App() {
         }
         completed++
         if (completed === selectedIds.length) {
-          // Update postTypes triaged count
-          if (newlyTriagedCount > 0 && currentType) {
-            setPostTypes(prev => prev.map(t => t.name === currentType ? { ...t, triaged: t.triaged + newlyTriagedCount } : t))
+          if (currentType) {
+            setPostTypes(prev => prev.map(t => {
+              if (t.name !== currentType) return t
+              return {
+                ...t,
+                triaged: t.triaged + newlyTriagedCount,
+                unpublished: t.unpublished + newlyTriagedCount + switchedFromKeep,
+                kept: t.kept - switchedFromKeep,
+              }
+            }))
           }
           setSelected(new Set())
           setBulkActionsOpen(false)
@@ -332,10 +366,13 @@ export default function App() {
   // Bulk keep
   const bulkKeep = () => {
     const selectedIds = [...selected]
-    // Count how many were previously untriaged
     const newlyTriagedCount = selectedIds.filter(id => {
       const post = posts.find(p => p.id === id)
       return post && post.triage_status === null
+    }).length
+    const switchedFromUnpublish = selectedIds.filter(id => {
+      const post = posts.find(p => p.id === id)
+      return post && post.triage_status === 'unpublish'
     }).length
 
     let completed = 0
@@ -347,9 +384,16 @@ export default function App() {
         }
         completed++
         if (completed === selectedIds.length) {
-          // Update postTypes triaged count
-          if (newlyTriagedCount > 0 && currentType) {
-            setPostTypes(prev => prev.map(t => t.name === currentType ? { ...t, triaged: t.triaged + newlyTriagedCount } : t))
+          if (currentType) {
+            setPostTypes(prev => prev.map(t => {
+              if (t.name !== currentType) return t
+              return {
+                ...t,
+                triaged: t.triaged + newlyTriagedCount,
+                kept: t.kept + newlyTriagedCount + switchedFromUnpublish,
+                unpublished: t.unpublished - switchedFromUnpublish,
+              }
+            }))
           }
           setSelected(new Set())
           setBulkActionsOpen(false)
@@ -929,6 +973,12 @@ export default function App() {
         <div className="flex items-center gap-4">
           <span className="font-semibold text-sm">Triage WP</span>
           <button
+            onClick={() => setStatsOpen(true)}
+            className="text-sm text-muted-foreground hover:text-foreground"
+          >
+            Stats
+          </button>
+          <button
             onClick={() => setPermissionsOpen(true)}
             className="text-sm text-muted-foreground hover:text-foreground"
           >
@@ -1040,6 +1090,41 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
+      {/* Stats Modal */}
+      <Dialog open={statsOpen} onOpenChange={setStatsOpen}>
+        <DialogContent className="max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Stats</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 py-4">
+            <div className="rounded-lg border bg-card p-4 text-center">
+              <div className="text-3xl font-bold text-foreground tabular-nums">
+                {postTypes.reduce((sum, t) => sum + t.count, 0).toLocaleString()}
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">Total Posts</div>
+            </div>
+            <div className="rounded-lg border bg-card p-4 text-center">
+              <div className="text-3xl font-bold text-foreground tabular-nums">
+                {postTypes.reduce((sum, t) => sum + t.triaged, 0).toLocaleString()}
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">Graded</div>
+            </div>
+            <div className="rounded-lg border bg-card p-4 text-center">
+              <div className="text-3xl font-bold text-orange-600 tabular-nums">
+                {postTypes.reduce((sum, t) => sum + t.unpublished, 0).toLocaleString()}
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">Marked Unpublish</div>
+            </div>
+            <div className="rounded-lg border bg-card p-4 text-center">
+              <div className="text-3xl font-bold text-green-600 tabular-nums">
+                {postTypes.reduce((sum, t) => sum + t.kept, 0).toLocaleString()}
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">Marked Keep</div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* CSV Upload Modal */}
       <Dialog open={csvUploadOpen} onOpenChange={setCsvUploadOpen}>
         <DialogContent>
@@ -1078,7 +1163,11 @@ export default function App() {
 
                           // Fetch fresh unpublished slugs then generate CSV from raw lines
                           ajax<string[]>('wp_triage_get_unpublished_slugs').then(res => {
-                            const currentUnpublished = res.success ? new Set(res.data) : unpublishedSlugs
+                            if (!res.success) {
+                              alert('Failed to fetch unpublished slugs. Please try again.')
+                              return
+                            }
+                            const currentUnpublished = new Set(res.data)
 
                             // Helper to parse CSV line respecting quotes
                             const parseCSVLine = (line: string) => {

@@ -1224,7 +1224,7 @@ export default function App() {
                         }}
                         className="flex-1"
                       >
-                        Download CSV
+                        Save Marked CSV
                       </Button>
                       <Button
                         onClick={() => csvInputRef.current?.click()}
@@ -1250,7 +1250,7 @@ export default function App() {
                       }}
                       className="text-xs text-muted-foreground hover:text-foreground mt-1"
                     >
-                      only-unpublish.csv
+                      Save only unpublish slugs
                     </button>
                   </div>
                 ) : (
